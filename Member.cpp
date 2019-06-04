@@ -154,6 +154,7 @@ Member::Member(const Member &anotherMember) {
 	this->pingCounter = anotherMember.pingCounter;
 	this->timeOutCounter = anotherMember.timeOutCounter;
 	this->memberList = anotherMember.memberList;
+        this->failedMemberList = anotherMember.failedMemberList;
 	this->myPos = anotherMember.myPos;
 	this->mp1q = anotherMember.mp1q;
 }
@@ -171,6 +172,7 @@ Member& Member::operator =(const Member& anotherMember) {
 	this->pingCounter = anotherMember.pingCounter;
 	this->timeOutCounter = anotherMember.timeOutCounter;
 	this->memberList = anotherMember.memberList;
+        this->failedMemberList = anotherMember.failedMemberList;
 	this->myPos = anotherMember.myPos;
 	this->mp1q = anotherMember.mp1q;
 	return *this;

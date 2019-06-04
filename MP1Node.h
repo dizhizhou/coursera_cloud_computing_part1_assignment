@@ -20,7 +20,7 @@
  */
 #define TREMOVE 20
 #define TFAIL 5
-
+#define GOSSIP_NB  2 // send PING to GOSSIP_NB of neighbor members
 /*
  * Note: You can change/add any functions in MP1Node.{h,cpp}
  */
@@ -29,8 +29,9 @@
  * Message Types
  */
 enum MsgTypes{
-    JOINREQ,
-    JOINREP,
+    JOINREQ,  // startup node -> coordinator
+    JOINREP,  // coordinator -> startup node
+    PING,     // gossip message
     DUMMYLASTMSGTYPE
 };
 
@@ -55,6 +56,15 @@ private:
 	Params *par;
 	Member *memberNode;
 	char NULLADDR[6];
+      
+        void sendJoinRep(Address *dst);
+        void recvJoinRep(char *data, int size);
+        void sendPing(Address *dst);
+        void recvPing(char *data, int size);
+        void sendMsg(Address *dst, enum MsgTypes type);
+
+        Address getAddressFromId(int id);
+        int getIdFromAddress(Address &addr);
 
 public:
 	MP1Node(Member *, Params *, EmulNet *, Log *, Address *);

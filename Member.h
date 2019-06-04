@@ -100,14 +100,16 @@ public:
 	int nnb;
 	// the node's own heartbeat
 	long heartbeat;
-	// counter for next ping
+	// counter: how many ping sent in the current time slot
 	int pingCounter;
-	// counter for ping timeout
+	// counter for ping timeout: send ping
 	int timeOutCounter;
 	// Membership table
-	vector<MemberListEntry> memberList;
+	unordered_map<int, MemberListEntry> memberList;
+	// falied Membership table
+	unordered_map<int, MemberListEntry> failedMemberList;
 	// My position in the membership table
-	vector<MemberListEntry>::iterator myPos;
+	unordered_map<int, MemberListEntry>::iterator myPos;
 	// Queue for failure detection messages
 	queue<q_elt> mp1q;
 	/**
