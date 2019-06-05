@@ -352,11 +352,6 @@ void MP1Node::recvJoinRep(char *data, int size)
  *                 2, if (exist in active member list && new hb > local hb) 
  *                        local hb = new hb;
  *                        local timestamp = local current time
- *                 3, if (exist in faild member list)
- *                        remove from the failed member list
- *                        add to the active member list
- *                            local hb = 0;
- *                            local timestamp = local current time
  */
 void MP1Node::recvPing(char *data, int size)
 {
@@ -454,7 +449,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             {
                 // insert new entry or update the existing one (recovered node) 
                 // in the member list and send JOINREP to the source
-                int id = getIdFromAddress(node.addr);// *(int*)(&node.addr.addr);
+                int id = getIdFromAddress(node.addr);
                 MemberListEntry entry;                   
 		entry.setheartbeat(node.heartbeat);
 		entry.settimestamp(par->getcurrtime());
@@ -513,7 +508,7 @@ void MP1Node::nodeLoopOps() {
     it->second.heartbeat = memberNode->heartbeat;
     it->second.timestamp = par->getcurrtime();
   
-    // set failed nodes
+    // check failed nodes
     it = memberNode->memberList.begin();
     while(it != memberNode->memberList.end())
     {
@@ -531,7 +526,7 @@ void MP1Node::nodeLoopOps() {
         }
     } 
 
-    // delete dead nodes
+    // check dead nodes
     it = memberNode->failedMemberList.begin();
     while (it != memberNode->failedMemberList.end())
     {
@@ -548,7 +543,7 @@ void MP1Node::nodeLoopOps() {
         }
     }
  
-    // send PING
+    // send PING in every timeOutCounter time units
     if (memberNode->pingCounter >= memberNode->timeOutCounter)
     {
         if (!memberNode->memberList.empty())
