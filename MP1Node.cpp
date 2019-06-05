@@ -96,8 +96,6 @@ int MP1Node::initThisNode(Address *joinaddr) {
 	/*
 	 * This function is partially implemented and may require changes
 	 */
-//	int id = *(int*)(&memberNode->addr.addr);
-//	int port = *(short*)(&memberNode->addr.addr[4]);
 
 	memberNode->bFailed = false;
 	memberNode->inited = true;
@@ -129,6 +127,13 @@ int MP1Node::introduceSelfToGroup(Address *joinaddr) {
         log->LOG(&memberNode->addr, "Starting up group...");
 #endif
         memberNode->inGroup = true;
+
+        // add itself into the member list
+        MemberListEntry entry;                   
+	entry.setheartbeat(memberNode->heartbeat);
+	entry.settimestamp(par->getcurrtime());
+        memberNode->memberList[getIdFromAddress(memberNode->addr)] = entry;
+        log->logNodeAdd(&memberNode->addr, &memberNode->addr);
     }
     else {
         size_t msgsize = sizeof(MessageHdr) + sizeof(joinaddr->addr) + sizeof(long) + 1;
@@ -227,27 +232,20 @@ void MP1Node::sendJoinRep(Address *dst)
  */
 void MP1Node::sendPing(Address *dst)
 {
-    sendMsg(dst, PING);
-    
-    //int id = getIdFromAddress(*dst);
-//    log->LOG(&memberNode->addr, " send PING to %d", id);
+    sendMsg(dst, PING);   
 }
 
 /**
  * FUNCTION NAME: sendMsg
  *
  * DESCRIPTION: send a message to dst with the entire membership list
- *              format: msgType, no. of entries, {id, heartbeat} list, src address id
+ *              format: msgType, no. of entries, {id, heartbeat} list
  */
 void MP1Node::sendMsg(Address *dst, enum MsgTypes type)
 {
     // failed node does not send message
     if (memberNode->bFailed)
         return;
-
-    int id = getIdFromAddress(*dst);
-    log->LOG(&memberNode->addr, " send a msg type %u to %d", type, id);
-
 
     unordered_map<int, MemberListEntry>::iterator it = memberNode->memberList.begin();   
     MessageHdr *msg = NULL;
@@ -281,9 +279,6 @@ void MP1Node::sendMsg(Address *dst, enum MsgTypes type)
     // send JOINREQ message to introducer member
     emulNet->ENsend(&memberNode->addr, dst, (char *)msg, msgsize);
 
- //   int id = getIdFromAddress(*dst);
- //   log->LOG(&memberNode->addr, " send msg %u to %d", type, id);
-
     free(msg);
 }
 
@@ -297,6 +292,10 @@ void MP1Node::recvJoinRep(char *data, int size)
 {
     // join th group
     memberNode->inGroup = true;   
+
+    // clear the list
+    memberNode->memberList.clear();
+    memberNode->failedMemberList.clear();
 
     // init the membership list    
 
@@ -318,10 +317,13 @@ void MP1Node::recvJoinRep(char *data, int size)
             head,
             sizeof(long));
         head = head + sizeof(long);
-     //   cout << "recv size = " << listSize << " id = " << id << " hb = " << heartbeat << endl;
 
-        MemberListEntry entry;                   
-	entry.setheartbeat(heartbeat);
+        int localId = getIdFromAddress(memberNode->addr); 
+
+        MemberListEntry entry;
+        // for local node, use the local heartbeat
+        entry.setheartbeat(
+            localId == id ? memberNode->heartbeat : heartbeat);
 	entry.settimestamp(par->getcurrtime());
         memberNode->memberList.insert(pair<int,MemberListEntry>(id, entry));
 
@@ -347,11 +349,6 @@ void MP1Node::recvJoinRep(char *data, int size)
  */
 void MP1Node::recvPing(char *data, int size)
 {
-    // join th group
-//    memberNode->inGroup = true;   
-
-//    log->LOG(&memberNode->addr, " recv PING");
-
     // init the membership list    
 
     unsigned int listSize;
@@ -373,8 +370,6 @@ void MP1Node::recvPing(char *data, int size)
             sizeof(long));
         head = head + sizeof(long);
  
-//        log->LOG(&memberNode->addr, "recv PING; member: id = %d hb = %ld", id, heartbeat);
-
         unordered_map<int, MemberListEntry>::iterator itActiveMem = memberNode->memberList.find(id);
         unordered_map<int, MemberListEntry>::iterator itFailedMem = memberNode->failedMemberList.find(id);
 
@@ -436,9 +431,6 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
     MessageHdr msg;
     memcpy(&msg, data, sizeof(MessageHdr));
 
-    log->LOG(&memberNode->addr, " recv a msg type %u", msg.msgType);
-//    log->LOG(&memberNode->addr, " recv msg %u", msg.msgType);  // DO_NOT_COMMIT
-   
     // 2. process the message based on its type   
     switch(msg.msgType)
     {
@@ -450,24 +442,13 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             memcpy(&(node.heartbeat), (data+sizeof(MessageHdr)+sizeof(node.addr.addr)+1), sizeof(long));
             if (0 == memcmp((char *)&(memberNode->addr.addr), (char *)&(joinAddr.addr), sizeof(memberNode->addr.addr)))
             {
-                // insert new entry in the member list and send JOINREP to the source
+                // insert new entry or update the existing one (recovered node) 
+                // in the member list and send JOINREP to the source
                 int id = getIdFromAddress(node.addr);// *(int*)(&node.addr.addr);
-                if (memberNode->memberList.find(id) == memberNode->memberList.end())
-                {   // insert a new startup node in the membership list
-                    MemberListEntry entry;                   
-		    entry.setheartbeat(node.heartbeat);
-		    entry.settimestamp(par->getcurrtime());
-                    memberNode->memberList.insert(pair<int,MemberListEntry>(id, entry));
-                }
-                else
-                {
-                    // False Positive: a startup node exists in the membership list! 
-                    log->LOG(&memberNode->addr,
-                        "False Positive: a startup node exists in the membership list!");
-                    // reset
-                    memberNode->memberList[id].setheartbeat(0);
-                    memberNode->memberList[id].settimestamp(par->getcurrtime());
-                }
+                MemberListEntry entry;                   
+		entry.setheartbeat(node.heartbeat);
+		entry.settimestamp(par->getcurrtime());
+                memberNode->memberList[id] = entry;
 
                 log->logNodeAdd(&memberNode->addr, &node.addr);
 
@@ -483,14 +464,6 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             break;
         }
         case JOINREP: // format msgType, no. of entries, {id, heartbeat} list
-            if (memberNode->memberList.size())
-            {
-                // False Positive: a startup node shouldn't have any entries in its the membership list! 
-                log->LOG(&memberNode->addr, 
-                    "False Positive: a startup node shouldn't have any entries in its the membership list!");
-                // reset
-                memberNode->memberList.clear();
-            }
             recvJoinRep(data, size);
             break;
         case PING:
@@ -512,10 +485,23 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
  * 				Propagate your membership list
  */
 void MP1Node::nodeLoopOps() {
-   
+ 
+    // update local heartbeat
+    memberNode->heartbeat++;
+
+    // update heartbeat for local node in memberlist
+    unordered_map<int, MemberListEntry>::iterator it;
+    it = memberNode->memberList.find(getIdFromAddress(memberNode->addr));
+    if (it == memberNode->memberList.end())    
+    {
+        log->LOG(&memberNode->addr, "false positive: active member list doesn't have local node! Stop Process!");
+        return;
+    }
+    it->second.heartbeat = memberNode->heartbeat;
+    it->second.timestamp = par->getcurrtime();
+  
     // set failed nodes
-    unordered_map<int, MemberListEntry>::iterator it = memberNode->memberList.begin();
-    vector<int> memberIds; // for random ping dst selction purpose later
+    it = memberNode->memberList.begin();
     while(it != memberNode->memberList.end())
     {
         int passed = par->getcurrtime() - it->second.timestamp;
@@ -527,7 +513,6 @@ void MP1Node::nodeLoopOps() {
         }
         else
         {
-           memberIds.push_back(it->first); // store all the active member IDs
             ++it;
         }
     } 
@@ -549,38 +534,30 @@ void MP1Node::nodeLoopOps() {
         }
     }
  
-    // non-coordinator members start sending PINGs
-    Address joinAddr = getJoinAddress();
-    if (0 != memcmp((char *)&(memberNode->addr.addr), (char *)&(joinAddr.addr), sizeof(memberNode->addr.addr))) 
+    // send PING
+    if (memberNode->pingCounter >= memberNode->timeOutCounter)
     {
-        // send PING
- //       log->LOG(&memberNode->addr, "pingCounter = %d timeOutCounter = %d memberListSize = %d", memberNode->pingCounter, memberNode->timeOutCounter, memberNode->memberList.size());
-        if (memberNode->pingCounter >= memberNode->timeOutCounter)
+        if (!memberNode->memberList.empty())
         {
-            if (!memberNode->memberList.empty())
-            {
-                // randomly send PING to  min (GOSSIP_NB, par->EN_GPSZ) of active neighber members
-                for (int i = 0; i < min (GOSSIP_NB, par->EN_GPSZ); i++)
-                {          
-                   int random = rand() % (int)memberIds.size();              
-                
-                   // do not send PING to self; BUT we may send multiple PINGs to the same dst
-                   int localId = getIdFromAddress(memberNode->addr);
-                   if (memberIds[random] == localId)
-                       continue;
-                
-                   Address dst = getAddressFromId(memberIds[random]); 
-                   sendPing(&dst);
-                   memberNode->heartbeat++;
-                   memberNode->pingCounter = 0; // reset
- //                  sendPing(&joinAddr);  // PING coordinator as well to update the global membershiplist
-                }
+            // send to all other active members
+           unordered_map<int, MemberListEntry>::iterator it;
+            for (it = memberNode->memberList.begin();
+                 it != memberNode->memberList.end(); ++it)
+            {          
+               // do not send PING to self; BUT we may send multiple PINGs to the same dst
+               int localId = getIdFromAddress(memberNode->addr);
+               if (it->first == localId)
+                   continue;
+            
+               Address dst = getAddressFromId(it->first); 
+               sendPing(&dst);
+               memberNode->pingCounter = 1; // reset
             }
-        }   
-        else
-        {
-            memberNode->pingCounter++;
         }
+    }   
+    else
+    {
+        memberNode->pingCounter++;
     }
     
     return;
