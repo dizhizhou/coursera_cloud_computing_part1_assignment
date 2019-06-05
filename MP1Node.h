@@ -15,6 +15,9 @@
 #include "EmulNet.h"
 #include "Queue.h"
 
+#include <unordered_map>
+#include <utility>
+
 /**
  * Macros
  */
@@ -45,6 +48,51 @@ typedef struct MessageHdr {
 }MessageHdr;
 
 /**
+ * CLASS NAME: MyMember
+ * NOTE: MyMember replaces the Member by using unordered_map. 
+ *       I have to do this since submit.py only allow me to change MP1Node.cpp and MP1Node.h
+ *
+ * DESCRIPTION: Class representing a member in the distributed system
+ */
+// Declaration and definition here
+class MyMember : public Member{
+public:
+	// This member's Address
+	Address addr;
+	// boolean indicating if this member is up
+	bool inited;
+	// boolean indicating if this member is in the group
+	bool inGroup;
+	// boolean indicating if this member has failed
+	bool bFailed;
+	// number of my neighbors
+	int nnb;
+	// the node's own heartbeat
+	long heartbeat;
+	// counter: how many ping sent in the current time slot
+	int pingCounter;
+	// counter for ping timeout: send ping
+	int timeOutCounter;
+	// Membership table
+	unordered_map<int, MemberListEntry> memberList;
+	// falied Membership table
+	unordered_map<int, MemberListEntry> failedMemberList;
+	// My position in the membership table
+	unordered_map<int, MemberListEntry>::iterator myPos;
+	// Queue for failure detection messages
+	queue<q_elt> mp1q;
+	/**
+	 * Constructor
+	 */
+	MyMember(): inited(false), inGroup(false), bFailed(false), nnb(0), heartbeat(0), pingCounter(0), timeOutCounter(0) {}
+	// copy constructor
+	MyMember(const MyMember &anotherMember);
+	// Assignment operator overloading
+	MyMember& operator =(const MyMember &anotherMember);
+	virtual ~MyMember() {}
+};
+
+/**
  * CLASS NAME: MP1Node
  *
  * DESCRIPTION: Class implementing Membership protocol functionalities for failure detection
@@ -54,7 +102,7 @@ private:
 	EmulNet *emulNet;
 	Log *log;
 	Params *par;
-	Member *memberNode;
+	MyMember *memberNode;
 	char NULLADDR[6];
       
         void sendJoinRep(Address *dst);
@@ -68,7 +116,7 @@ private:
 
 public:
 	MP1Node(Member *, Params *, EmulNet *, Log *, Address *);
-	Member * getMemberNode() {
+	MyMember * getMemberNode() {
 		return memberNode;
 	}
 	int recvLoop();
@@ -83,7 +131,7 @@ public:
 	void nodeLoopOps();
 	int isNullAddress(Address *addr);
 	Address getJoinAddress();
-	void initMemberListTable(Member *memberNode);
+	void initMemberListTable(MyMember *memberNode);
 	void printAddress(Address *addr);
 	virtual ~MP1Node();
 };

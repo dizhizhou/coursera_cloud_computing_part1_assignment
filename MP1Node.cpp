@@ -20,7 +20,10 @@ MP1Node::MP1Node(Member *member, Params *params, EmulNet *emul, Log *log, Addres
 	for( int i = 0; i < 6; i++ ) {
 		NULLADDR[i] = 0;
 	}
-	this->memberNode = member;
+        
+        MyMember *myMember = new MyMember();
+        myMember->inited = member->inited;
+	this->memberNode = myMember;
 	this->emulNet = emul;
 	this->log = log;
 	this->par = params;
@@ -167,6 +170,8 @@ int MP1Node::finishUpThisNode(){
    /*
     * Your code goes here
     */
+    memberNode->memberList.clear();
+    memberNode->failedMemberList.clear();
     return 0;
 }
 
@@ -201,6 +206,9 @@ void MP1Node::nodeLoop() {
  * DESCRIPTION: Check messages in the queue and call the respective message handler
  */
 void MP1Node::checkMessages() {
+    if (memberNode->bFailed) {
+    	return;
+    }
     void *ptr;
     int size;
 
@@ -290,6 +298,9 @@ void MP1Node::sendMsg(Address *dst, enum MsgTypes type)
 
 void MP1Node::recvJoinRep(char *data, int size)
 {
+    if (memberNode->bFailed) {
+    	return;
+    }
     // join th group
     memberNode->inGroup = true;   
 
@@ -349,6 +360,9 @@ void MP1Node::recvJoinRep(char *data, int size)
  */
 void MP1Node::recvPing(char *data, int size)
 {
+    if (memberNode->bFailed) {
+    	return;
+    }
     // init the membership list    
 
     unsigned int listSize;
@@ -398,18 +412,11 @@ void MP1Node::recvPing(char *data, int size)
             itActiveMem->second.settimestamp(par->getcurrtime());
         }
         else if (itFailedMem != memberNode->failedMemberList.end())
-        {   // receives a heartbeat from a failed node, recovery
-            MemberListEntry entry;                   
-            entry.setheartbeat(0);
-	    entry.settimestamp(par->getcurrtime());         
-            memberNode->memberList.insert(pair<int,MemberListEntry>(id, entry));
-
-            memberNode->failedMemberList.erase(itFailedMem);
+        {   // receives a heartbeat from a failed node
+            log->LOG(&memberNode->addr, " this is a failed id %d. do not update member list", id);
         }
     }
 }
-
-
 
 /**
  * FUNCTION NAME: recvCallBack
@@ -418,7 +425,10 @@ void MP1Node::recvPing(char *data, int size)
  *
  * startup node --- JOINREQ --> coordinator (getjoinaddr()) // msg fmt: addr, heartbeat; ops: insert new entry in member list
  *              <-- JOINREP ---                             // msg fmt: id, num of entries, member list-(id, heartbeat) pairs 
- *              <--  PING   --> all other nodes(exclude coordinator) // msg fmt: same as PING.       
+ *              <--  PING   --> all other nodes             // msg fmt: same as JOINREP. 
+                                                            // always update local entry
+                                                            // update member entries for all non-local ones 
+                                                                  (ops: update heartbeat, fail, remove)      
  * PING vs JOINREP: PING sends in a fixed rate. JOINREP only sent during node bootup 
  */
 bool MP1Node::recvCallBack(void *env, char *data, int size ) {
@@ -482,10 +492,13 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
  *
  * DESCRIPTION: Check if any node hasn't responded within a timeout period and then delete
  * 				the nodes
- * 				Propagate your membership list
+ * 				Propagate your membership list via PING
  */
 void MP1Node::nodeLoopOps() {
- 
+    if (memberNode->bFailed) {
+    	return;
+    }
+
     // update local heartbeat
     memberNode->heartbeat++;
 
@@ -507,6 +520,7 @@ void MP1Node::nodeLoopOps() {
         int passed = par->getcurrtime() - it->second.timestamp;
         if (passed >= TFAIL)  // fail timer expires: mark as a failed node
         {
+            log->LOG(&memberNode->addr, " id %d failed", it->first);
             memberNode->failedMemberList.insert(
                 pair<int, MemberListEntry>(it->first, it->second));
             it = memberNode->memberList.erase(it); // return the next one of erased item
@@ -608,7 +622,7 @@ Address MP1Node::getJoinAddress() {
  *
  * DESCRIPTION: Initialize the membership list
  */
-void MP1Node::initMemberListTable(Member *memberNode) {
+void MP1Node::initMemberListTable(MyMember *memberNode) {
 	memberNode->memberList.clear();
         memberNode->failedMemberList.clear();
 }
@@ -622,4 +636,41 @@ void MP1Node::printAddress(Address *addr)
 {
     printf("%d.%d.%d.%d:%d \n",  addr->addr[0],addr->addr[1],addr->addr[2],
                                                        addr->addr[3], *(short*)&addr->addr[4]) ;    
+}
+
+/**
+ * Copy Constructor
+ */
+MyMember::MyMember(const MyMember &anotherMember) {
+	this->addr = anotherMember.addr;
+	this->inited = anotherMember.inited;
+	this->inGroup = anotherMember.inGroup;
+	this->bFailed = anotherMember.bFailed;
+	this->nnb = anotherMember.nnb;
+	this->heartbeat = anotherMember.heartbeat;
+	this->pingCounter = anotherMember.pingCounter;
+	this->timeOutCounter = anotherMember.timeOutCounter;
+	this->memberList = anotherMember.memberList;
+        this->failedMemberList = anotherMember.failedMemberList;
+	this->myPos = anotherMember.myPos;
+	this->mp1q = anotherMember.mp1q;
+}
+
+/**
+ * Assignment operator overloading
+ */
+MyMember& MyMember::operator =(const MyMember& anotherMember) {
+	this->addr = anotherMember.addr;
+	this->inited = anotherMember.inited;
+	this->inGroup = anotherMember.inGroup;
+	this->bFailed = anotherMember.bFailed;
+	this->nnb = anotherMember.nnb;
+	this->heartbeat = anotherMember.heartbeat;
+	this->pingCounter = anotherMember.pingCounter;
+	this->timeOutCounter = anotherMember.timeOutCounter;
+	this->memberList = anotherMember.memberList;
+        this->failedMemberList = anotherMember.failedMemberList;
+	this->myPos = anotherMember.myPos;
+	this->mp1q = anotherMember.mp1q;
+	return *this;
 }
